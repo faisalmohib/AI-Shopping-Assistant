@@ -1,0 +1,314 @@
+import streamlit as st
+
+from database import (
+    create_order,
+    get_orders
+)
+
+from recommendation.embedding_service import (
+    get_embedding_recommendations
+)
+
+from agent import graph
+
+from services.notification_service import (
+    send_order_email,
+    send_whatsapp_message
+)
+
+
+st.set_page_config(
+    page_title="AI Shopping Assistant",
+    page_icon="🛒",
+    layout="wide"
+)
+
+st.title("🛒 AI Shopping Assistant")
+
+
+# =========================
+# SESSION STATE
+# =========================
+if "output" not in st.session_state:
+    st.session_state.output = None
+
+if "selected_product" not in st.session_state:
+    st.session_state.selected_product = None
+
+
+# =========================
+# TABS
+# =========================
+search_tab, orders_tab = st.tabs(
+    ["🔍 Search Products", "📦 My Orders"]
+)
+
+
+# =========================
+# SEARCH TAB
+# =========================
+with search_tab:
+
+    question = st.text_input(
+        "",
+        placeholder="Show me black kameez shalwar in L size"
+    )
+
+    if st.button("Search") and question:
+
+        with st.spinner("Searching..."):
+
+            st.session_state.output = graph.invoke(
+                {"question": question}
+            )
+
+    if st.session_state.output:
+
+        output = st.session_state.output
+
+        st.subheader("Detected Route")
+        st.write(output["route"])
+
+        with st.expander("Generated SQL"):
+            st.code(output["sql"], language="sql")
+
+        results = output["result"]
+
+        if not results:
+
+            st.warning("No products found")
+
+        elif isinstance(results[0], str):
+
+            st.error(results[0])
+
+        else:
+
+            st.success(f"Found {len(results)} products")
+
+            cols = st.columns(3)
+
+            for idx, row in enumerate(results):
+
+                with cols[idx % 3]:
+
+                    with st.container(border=True):
+
+                        try:
+                            if row[6]:
+                                st.image(
+                                    row[6],
+                                    use_container_width=True
+                                )
+                        except Exception:
+                            pass
+
+                        st.markdown(f"### {row[2]}")
+                        st.markdown(f"💰 Rs. {row[3]}")
+                        st.markdown(f"🎨 {row[4]}")
+                        st.markdown(f"🏷 {row[5]}")
+                        st.markdown(f"👤 {row[8]}")
+
+                        if row[7]:
+                            st.link_button(
+                                "View Product",
+                                row[7],
+                                use_container_width=True
+                            )
+
+                        if st.button(
+                            "🛒 Buy Now",
+                            key=f"buy_{row[0]}"
+                        ):
+                            st.session_state.selected_product = row
+                            st.rerun()
+
+
+# =========================
+# CHECKOUT SECTION
+# =========================
+if st.session_state.selected_product:
+
+    product = st.session_state.selected_product
+
+    recommendations = get_embedding_recommendations(
+        product_id=product[0]
+    )
+
+    st.divider()
+
+    st.subheader("💳 Checkout")
+
+    st.write(f"**Product:** {product[2]}")
+    st.write(f"**Price:** Rs. {product[3]}")
+
+    with st.form("checkout_form"):
+
+        customer_name = st.text_input("Full Name")
+
+        customer_email = st.text_input("Email")
+
+        phone = st.text_input("Phone Number")
+
+        address = st.text_area("Delivery Address")
+
+        quantity = st.number_input(
+            "Quantity",
+            min_value=1,
+            value=1
+        )
+
+        st.markdown("### Payment (Simulation Only)")
+
+        card_number = st.text_input(
+            "Card Number",
+            type="password"
+        )
+
+        expiry = st.text_input(
+            "Expiry Date"
+        )
+
+        cvv = st.text_input(
+            "CVV",
+            type="password"
+        )
+
+        submit_order = st.form_submit_button(
+            "Place Order"
+        )
+
+        if submit_order:
+
+            if not customer_name or not customer_email or not phone or not address:
+
+                st.error(
+                    "Please fill all required fields."
+                )
+
+            else:
+
+                create_order(
+                    product_id=product[0],
+                    product_name=product[2],
+                    customer_name=customer_name,
+                    phone=phone,
+                    address=address,
+                    quantity=quantity
+                )
+
+                send_order_email(
+                    customer_email=customer_email,
+                    customer_name=customer_name,
+                    product_name=product[2],
+                    quantity=quantity
+                )
+
+                send_whatsapp_message(
+                    phone=phone,
+                    product_name=product[2]
+                )
+
+                st.success("✅ Payment Successful!")
+
+                st.balloons()
+
+                st.success(
+                    f"Order placed for '{product[2]}'"
+                )
+
+                st.session_state.selected_product = None
+
+                st.rerun()
+
+    # =========================
+    # AI RECOMMENDATIONS
+    # =========================
+    if recommendations:
+
+        st.divider()
+
+        st.subheader("🤖 AI Recommendations")
+
+        cols = st.columns(
+            min(len(recommendations), 4)
+        )
+
+        for idx, item in enumerate(recommendations):
+
+            with cols[idx]:
+
+                with st.container(border=True):
+
+                    try:
+                        if item["image"]:
+                            st.image(
+                                item["image"],
+                                use_container_width=True
+                            )
+                    except Exception:
+                        pass
+
+                    st.markdown(f"### {item['name']}")
+                    st.markdown(f"💰 Rs. {item['price']}")
+                    st.markdown(f"🎨 {item['color']}")
+                    st.markdown(f"🏷 {item['brand']}")
+                    st.markdown(f"👤 {item['target_audience']}")
+
+                    if item["url"]:
+                        st.link_button(
+                            "View Product",
+                            item["url"],
+                            key=f"emb_link_{item['id']}",
+                            use_container_width=True
+                        )
+
+                    if st.button(
+                        "🛒 Buy This",
+                        key=f"emb_buy_{item['id']}"
+                    ):
+
+                        st.session_state.selected_product = (
+                            item["id"],
+                            None,
+                            item["name"],
+                            item["price"],
+                            item["color"],
+                            item["brand"],
+                            item["image"],
+                            item["url"],
+                            item["target_audience"],
+                            item["category"]
+                        )
+
+                        st.rerun()
+
+
+# =========================
+# ORDERS TAB
+# =========================
+with orders_tab:
+
+    st.subheader("📦 My Orders")
+
+    orders = get_orders()
+
+    if not orders:
+
+        st.info("No orders placed yet.")
+
+    else:
+
+        for order in orders:
+
+            with st.container(border=True):
+
+                st.markdown(f"### {order[0]}")
+
+                st.write(f"📏 Quantity: {order[1]}")
+                st.write(f"👤 Customer: {order[2]}")
+                st.write(f"📞 Phone: {order[3]}")
+                st.write(f"📍 Address: {order[4]}")
+                st.write(f"💳 Payment: {order[5]}")
+                st.write(f"🚚 Status: {order[6]}")
+                st.write(f"🕒 Ordered: {order[7]}")
