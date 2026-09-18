@@ -236,7 +236,7 @@ The following screenshots demonstrate the major parts of the application.
 
 The home page provides the main shopping interface and highlights products and recommendations.
 
-![Home Page](screenshots/hero-section.png)
+![Home Page](screenshots/home.png)
 
 ---
 
@@ -338,7 +338,7 @@ Customers can ask questions using natural language.
 
 ---
 
-## 🧠 RAG-Based Customer Response
+## 🧠 System to Customer Response
 
 The chatbot retrieves relevant information from the knowledge base and generates a response for the customer.
 
